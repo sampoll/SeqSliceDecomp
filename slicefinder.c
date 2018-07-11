@@ -76,7 +76,7 @@ int allslices_start_given(sequence *Q, slice ***R, unsigned *nr, unsigned start)
 
   // no nontrivial slices begin at 
   if (j == 0)  {
-    printf("info: no nontrivial slices begin at %u\n", start);
+    // printf("info: no nontrivial slices begin at %u\n", start);
     return 0;
   }
 
@@ -97,10 +97,100 @@ int allslices_start_given(sequence *Q, slice ***R, unsigned *nr, unsigned start)
 
 }
 
-int allslices(sequence *Q, slice **R, unsigned *nr, unsigned include_subsets)  {
-  // keep one list for every step size, to facilitate removing subset slices
-  // slice A is a subset of slice B if step(A) == step(B) and 
-  //  start(A) >= start(B) && stop(A) >= stop(B)
+int remove_subsets(slice ***L, unsigned *I, unsigned np)  {
+    unsigned nsubsets = 0;
+    // remove subsets
+    for(unsigned istart=0;istart<np;istart++)  {
+      for(unsigned j=0;j<I[istart];j++)  {
+        slice *slp = L[istart][j];
+        if (slp != NULL)  {         // NULL indicates an already-removed subset
+
+          // slp->S has the indices of the slice
+          // so subset slices are at S[1], S[2], ..., S[ns-3]
+          // because trivial (i.e. two-point) slices are not
+          // included in the lists
+
+          for(unsigned k=1;k<slp->ns-2;k++)  {
+            // find slice in list L[k]
+            for(unsigned l=0;l<I[slp->S[k]];l++)  {
+              slice *slq = L[slp->S[k]][l];
+              if (slq != NULL && 
+                  slq->start == slp->start + k*slp->step &&
+                  slq->step == slp->step)  {
+                // remove slice
+                free(slq->S);
+                free(slq);
+                L[slp->S[k]][l] = NULL;
+                nsubsets++;
+                break;   // only one slice per (step, start) pair
+              }
+            }
+
+          }
+        }
+      }
+    }
+    return(nsubsets);
+}
+
+int allslices(sequence *Q, slice ***C, unsigned *nc, unsigned include_subsets)  {
+
+  // build one list for every start position, to facilitate removing 
+  // subset slices. If slice S is start:stop:step, then its subsets are 
+  // (start+step):stop:step, (start+2*step):stop:step, etc.
+  unsigned *X = Q->X;
+  int np = Q->np;
+  int irtn = 0;
+
+  slice ***L = (slice ***)malloc(np*sizeof(slice **));
+  unsigned *I = (unsigned *)malloc(np*sizeof(unsigned));
+
+  slice **R = NULL;
+  unsigned nr;
+
+  for(unsigned istart=0;istart<np;istart++)  {
+    unsigned start = X[istart];
+    
+    R = NULL;
+    nr = 0;
+    irtn = allslices_start_given(Q, &R, &nr, start);
+
+    L[istart] = R;
+    I[istart] = nr;
+
+  }
+
+  unsigned nb = 0;
+  if (!include_subsets)  {
+    nb = remove_subsets(L, I, np);
+    printf("error: removing subsets not implemented yet\n");
+  }
+
+  // pack all slice arrays into one array
+  unsigned sz = 0;
+  for(unsigned istart=0;istart<np;istart++)  {
+    sz += I[istart];
+  }
+  sz -= nb;    // subtract off space of removed subset slices
+  *C = (slice **)malloc(sz*sizeof(slice *));
+
+  unsigned i = 0;
+  for(unsigned istart=0;istart<np;istart++)  {
+    for(unsigned j=0;j<I[istart];j++)  {
+      if (L[istart][j] != NULL)  {
+        (*C)[i++] = L[istart][j];
+      }
+    }
+  }
+  *nc = sz;
+  
+  // delete lists in L but not the slices in them
+  for(unsigned istart=0;istart<np;istart++)  {
+    free(L[istart]);
+  }
+  free(L);
+  free(I);
+
   return 0;
 }
 
@@ -111,7 +201,6 @@ sequence *initseq(unsigned *X, unsigned np)  {
   Q->np = np;
   Q->nd = np-1;
   int i, j;
-
 
   int nd = Q->nd;    // convenience
 
@@ -342,6 +431,7 @@ void printslice(sequence *Q, slice *slc)  {
 // TODO: check special cases (1) remove a slice of size 1 and remove a slice
 // that contains the last point.
 // TODO: need to remove points from Q->X and update Q->np as well as Q->nd 
+// NOTE: that when removing a slice, we remove all subset slices simultaneously
 
 int removeslice(sequence *Q, slice *slc)  {  
   unsigned **D = Q->D;

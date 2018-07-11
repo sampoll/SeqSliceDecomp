@@ -30,6 +30,7 @@ slice *initslice(sequence *Q, unsigned ii, unsigned jj, unsigned len);
 void printslice(sequence *Q, slice *slc);
 
 int allslices_start_given(sequence *Q, slice ***R, unsigned *nr, unsigned start);
+int allslices(sequence *Q, slice ***C, unsigned *nc, unsigned include_subsets);
 
 // !!! not fully implemented yet !!!
 int removeslice(sequence *Q, slice *slc);  
