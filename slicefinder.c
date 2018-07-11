@@ -423,21 +423,28 @@ void printslice(sequence *Q, slice *slc)  {
 }
 
 
-// Remove slice S of length ns from D of size nd  
-//   S is an array of *indices*, e.g., S = [2, 4, 6] means remove rows [2, 4, 6] and
-//       fix up the other rows to account for the removal 
-//   removing the slice of length ns reduces the size of D from nd to nd-ns 
+// Remove slice from Q 
 
-// TODO: check special cases (1) remove a slice of size 1 and remove a slice
-// that contains the last point.
+// TODO: check special case slice that contains the last point.
 // TODO: need to remove points from Q->X and update Q->np as well as Q->nd 
-// NOTE: that when removing a slice, we remove all subset slices simultaneously
+// NOTE: that when removing a slice, we remove all subset slices simultaneously,
+//       Subsets need to be removed from array of slices before calling this.
+
+// Assumptions: slice is at least 3 points (non-trivial slice)
 
 int removeslice(sequence *Q, slice *slc)  {  
   unsigned **D = Q->D;
   unsigned *S = slc->S;
   unsigned nd = Q->nd;
   unsigned ns = slc->ns;
+
+  // Remove relevant elements from difference array D
+  // Removing point X[p] requires:
+  // (2) Remove row p altogether
+  // (1) Diagonally: remove all differences to X[p]
+  //     I.e., element p in row 0, element p-1 in row 1, ...
+  //     one element in each row up to p-1
+  // Set elements to be removed to 0.
 
   // remove diagonally
   for(int i=0;i<ns;i++)  {
@@ -448,37 +455,18 @@ int removeslice(sequence *Q, slice *slc)  {
   }
 
   // squeeze out obsolete rows
+  // instead of copying elements just copy pointers. 
   int m = 0;    // pull up this many rows
   int j = 0;    // index into S
-
   for(int i=0;i<nd;i++)  {
-    if (i+m == S[j])  {
-      j++;     // look for next j
-      m++;     // pull back one more row
-    }
-    if (m == 0)
-      continue;
-
-    // updated row i is original row i+m
-    if (i+m >= nd)  {
-      for(int k=0;k<nd-i;k++)  {
-        D[i][k] = 0;
-      }
+    if (S[j] == i)  {
+      j++;
+      m++;
+      free(D[i]);
     }
     else  {
-      for(int k=0;k<nd-(i+m);k++)  {
-        D[i][k] = D[i+m][k];
-      }
-      for(int k=nd-(i+m);k<nd-i;k++)  {
-        D[i][k] = 0;
-      }
+      D[i-m] = D[i];
     }
-  }
-
-  // free obsolete row memory
-  for(int i=0;i<ns;i++)  {
-    printf("free row %u\n", nd-i-1);
-    free(D[nd-i-1]);
   }
 
   // squeeze out zeroes in remaining rows
@@ -495,7 +483,7 @@ int removeslice(sequence *Q, slice *slc)  {
     }
   }
 
-  // TODO: remove eventually 
+  // TODO: remove this check eventually 
   // debug: check for non-zeroed out elements, because the 
   // zero is used as a signal of no-data
 
@@ -506,7 +494,20 @@ int removeslice(sequence *Q, slice *slc)  {
     }
   }
 
+  // Remove slice points from Q->X
+  unsigned *XX = (unsigned *)malloc((Q->np-ns)*sizeof(unsigned));
+  unsigned ii = 0;
+  unsigned jj = 0;
+  for(int i=0;i<Q->np;i++)  { 
+    if (ii < ns && i == S[ii])   // skip this point
+      ii++; 
+    else
+      XX[jj++] = Q->X[i];
+  }
+  free(Q->X); 
+  Q->X = XX;
   Q->nd = nd - ns;
+  Q->np = Q->np - ns;
   return 0;
 
 }
