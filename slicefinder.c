@@ -1,62 +1,108 @@
-#include <stdio.h>
-#include <math.h>
-#include <stdlib.h>
+#include "slicefinder.h"
 
-
-typedef struct _slice  {
-  unsigned start;
-  unsigned stop;
-  unsigned step;
-  unsigned ns;
-  unsigned *S;    // indices not values
-} slice;
-
-typedef struct _sequence  {
-  unsigned **D;
-  unsigned *X;
-  unsigned np;    // npoints
-  unsigned nd;   // nintervals
-  slice *S;
-} sequence;
-
-
-int input(const char *fn, unsigned **xp, int *np);
+// private
 int pathlen(unsigned **D, unsigned nd, unsigned i, unsigned j);
 int printpth(unsigned **D, unsigned *X, unsigned nd, unsigned ii, unsigned jj);
-int removeslice(unsigned **D, unsigned *S, unsigned nd, unsigned ns);
 
-sequence *initseq(unsigned *X, unsigned np);
-void printseq(sequence *Q);
-slice *initslice(sequence *Q, unsigned ii, unsigned jj, unsigned len);
-void printslice(sequence *Q, slice *slc);
+// private: list struct for building slice list
+typedef struct _slicenode {
+  slice *slice;
+  struct _slicenode *nxt;
+} slicenode;
 
 
+// insert slice at top of list 
+void insert_slice_list(slice *slp, slicenode **headp)  {
+  slicenode *node = (slicenode *)malloc(sizeof(slicenode));
+  node->slice = slp;
+  node->nxt = *headp;
+  *headp = node;
+}
 
-int main(int argc, char **argv)  {
-  int i, j, np = 0;
-  unsigned *X = NULL;
-
-  // read sequence from file
-  input("invals.txt", &X, &np);
-  sequence *Q = initseq(X, np);
-  printseq(Q);
-  slice *slp = NULL;
-
-  // all path lengths
-  int nd = Q->nd;
-  for(i=0;i<nd;i++)  {
-    for(j=0;j<nd-i;j++)  {
-      unsigned pl = 1 + pathlen(Q->D, nd, i, j);   // number of intervals
-      if (pl >= 2)  {
-        printf("----> len = %d : ", pl+1);
-        printpth(Q->D, Q->X, nd, i, j);
-        slp = initslice(Q, i, j, pl);
-        printslice(Q, slp);
-      }
+// delete slice list nodes but not the slices
+void delete_slice_list(slicenode *head)  {
+  slicenode *node = head;
+  while (node != NULL)  {
+    if (node->nxt == NULL)  {
+      free(node);
+      node = NULL;
+    }
+    else  {
+      slicenode *nxtnode = node->nxt;
+      free(node);
+      node = nxtnode;
     }
   }
 }
 
+// Moderately Hard: find all slices of a given step size 
+//   look through D for the value and find slices 
+//   beginning with those (i,j) pairs
+
+// Easy: find all slices of a given start index (or value)
+// Must pass NULL, 0 to (slice, nr) or could crash
+int allslices_start_given(sequence *Q, slice ***R, unsigned *nr, unsigned start)  {
+  unsigned nd = Q->nd;
+  unsigned istart, j, k;
+
+  istart = -1;
+  for(int j=0;j<Q->np;j++)  {
+    if (Q->X[j] == start)  {
+      istart = j;
+      break;
+    }
+  }
+
+  if (istart == -1)  {
+    printf("error: start value %u is not in the sequence\n", start);
+    return 1;
+  }
+ 
+  slicenode *head = NULL;
+  for(j=0;j<nd-istart;j++)  {
+    unsigned pl = 1 + pathlen(Q->D, nd, istart, j);   // number of intervals
+    // every pair is a trivial slice, omit these
+    if (pl >= 2)  {     
+      slice *slp = initslice(Q, istart, j, pl);
+      insert_slice_list(slp, &head);
+    }
+  }
+
+  // count slices in list
+  slicenode *node = head;
+  for(j = 0;node != NULL;j++)  {
+    node = node->nxt;
+  }
+
+  // no nontrivial slices begin at 
+  if (j == 0)  {
+    printf("info: no nontrivial slices begin at %u\n", start);
+    return 0;
+  }
+
+  // allocate array and put slices in it
+  *nr = j;
+  slice **RR = (slice **)malloc(j*sizeof(slice *));
+  node = head;
+  // put slices in backwards for increasing step size
+  for(k=0;k<j;k++)  {
+    RR[j-1-k] = node->slice;
+    node = node->nxt;
+  }
+  *R = RR;
+  
+  // clean up list
+  delete_slice_list(head);
+  return 0;
+
+}
+
+int allslices(sequence *Q, slice **R, unsigned *nr, unsigned include_subsets)  {
+  // keep one list for every step size, to facilitate removing subset slices
+  // slice A is a subset of slice B if step(A) == step(B) and 
+  //  start(A) >= start(B) && stop(A) >= stop(B)
+  return 0;
+}
 
 
 sequence *initseq(unsigned *X, unsigned np)  {
@@ -161,8 +207,10 @@ int pathlen(unsigned **D, unsigned nd, unsigned i, unsigned j)  {
     return 0;
 
   // special case: last point of sequence is in slice
-  if ((i + j + 1) == nd)     
-    return 1;
+  if ((i + j + 1) == nd)  {   
+    // return 1;
+    return 0;
+  }
 
   // if the step size (val) is in row (i+j+1)
   // then the length of the slice is one more
@@ -242,9 +290,9 @@ slice *initslice(sequence *Q, unsigned ii, unsigned jj, unsigned len)  {
     }
 
     // special case: last point in slice
-    if (i == nd)  {
-      S[s++] = nd;
-    }
+    // if (i == nd)  {
+    //  S[s++] = nd;
+    // }
 
     found = 0;
     for(int k=0;found == 0 && k<nd-i;k++)  {
@@ -286,14 +334,20 @@ void printslice(sequence *Q, slice *slc)  {
 }
 
 
-// Remove slice S of length ns from D0 of size n0 and return D1 (of size n0-ns)
+// Remove slice S of length ns from D of size nd  
 //   S is an array of *indices*, e.g., S = [2, 4, 6] means remove rows [2, 4, 6] and
 //       fix up the other rows to account for the removal 
-//   n0 is the number of rows in D0, which is one less than the size of the current
-//       sequence.
-// Assume: all S are less than nd
+//   removing the slice of length ns reduces the size of D from nd to nd-ns 
 
-int removeslice(unsigned **D, unsigned *S, unsigned nd, unsigned ns)  {
+// TODO: check special cases (1) remove a slice of size 1 and remove a slice
+// that contains the last point.
+// TODO: need to remove points from Q->X and update Q->np as well as Q->nd 
+
+int removeslice(sequence *Q, slice *slc)  {  
+  unsigned **D = Q->D;
+  unsigned *S = slc->S;
+  unsigned nd = Q->nd;
+  unsigned ns = slc->ns;
 
   // remove diagonally
   for(int i=0;i<ns;i++)  {
@@ -331,13 +385,13 @@ int removeslice(unsigned **D, unsigned *S, unsigned nd, unsigned ns)  {
     }
   }
 
-  // free last rows
+  // free obsolete row memory
   for(int i=0;i<ns;i++)  {
     printf("free row %u\n", nd-i-1);
     free(D[nd-i-1]);
   }
 
-  // squeeze out 0's
+  // squeeze out zeroes in remaining rows
   for(int i=0;i<nd-ns;i++)  {
     int m = 0;
     for(int k=0;k<nd-ns-i;k++)  {
@@ -351,7 +405,10 @@ int removeslice(unsigned **D, unsigned *S, unsigned nd, unsigned ns)  {
     }
   }
 
-  // DEBUG: (remove) check for non-zeroed out elements
+  // TODO: remove eventually 
+  // debug: check for non-zeroed out elements, because the 
+  // zero is used as a signal of no-data
+
   for(int i=0;i<nd-ns;i++)  {
     for(int j=nd-ns;j<nd;j++)  {
       if (D[i][j] != 0)  
@@ -359,6 +416,8 @@ int removeslice(unsigned **D, unsigned *S, unsigned nd, unsigned ns)  {
     }
   }
 
+  Q->nd = nd - ns;
   return 0;
+
 }
 
