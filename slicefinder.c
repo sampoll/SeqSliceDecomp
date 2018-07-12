@@ -163,7 +163,6 @@ int allslices(sequence *Q, slice ***C, unsigned *nc, unsigned include_subsets)  
   unsigned nb = 0;
   if (!include_subsets)  {
     nb = remove_subsets(L, I, np);
-    printf("error: removing subsets not implemented yet\n");
   }
 
   // pack all slice arrays into one array
@@ -195,6 +194,8 @@ int allslices(sequence *Q, slice ***C, unsigned *nc, unsigned include_subsets)  
 }
 
 
+
+// Initial computation of all diffs from sequence points
 sequence *initseq(unsigned *X, unsigned np)  {
   sequence *Q = (sequence *)malloc(sizeof(sequence));
   Q->X = X;
@@ -281,9 +282,9 @@ int input(const char *fn, unsigned **xp, int *n)  {
 
 // The sequence is easy to compute from the indices, but the 
 // indices are not easy to compute from the points.
-// I.e., if we have S = {i1, i2, i3, ... } then it's 
-// easy to get the slice points = {X[S[i1]], X[S[i2]], ... }
-// But from the points {X1, X2, ... } it's necessary
+// I.e., given S = {i1, i2, i3, ... } it's easy to get the 
+// slice points = {X[S[i1]], X[S[i2]], ... }
+// But given points {X1, X2, ... } it's necessary
 // to do a search to find i1, i2, etc. 
 
 // Return length of slice from X[i] with step D[i][j] 
@@ -425,7 +426,6 @@ void printslice(sequence *Q, slice *slc)  {
 
 // Remove slice from Q 
 
-// TODO: check special case slice that contains the last point.
 // TODO: need to remove points from Q->X and update Q->np as well as Q->nd 
 // NOTE: that when removing a slice, we remove all subset slices simultaneously,
 //       Subsets need to be removed from array of slices before calling this.
@@ -459,7 +459,7 @@ int removeslice(sequence *Q, slice *slc)  {
   int m = 0;    // pull up this many rows
   int j = 0;    // index into S
   for(int i=0;i<nd;i++)  {
-    if (S[j] == i)  {
+    if (j < ns && S[j] == i)  {
       j++;
       m++;
       free(D[i]);
@@ -511,4 +511,118 @@ int removeslice(sequence *Q, slice *slc)  {
   return 0;
 
 }
+
+// private for algorithm1
+int maxslice(slice **C, unsigned nc)  {
+  unsigned maxns = 0;
+  int maxidx = -1;
+
+  if (nc == 0)
+    return -1;
+
+  for(int i=0;i<nc;i++)  {
+    if (C[i]->ns > maxns)  {
+      maxns = C[i]->ns;
+      maxidx = i;
+    }
+  }
+  return maxidx;
+
+}
+
+// deallocate the array of slices from allslices 
+int dealloc_slice_array(slice **C, unsigned nc)  {
+  for(int i=0;i<nc;i++)  {
+    free(C[i]->S);
+    free(C[i]);
+  }
+  free(C);
+  return 0; 
+}
+
+// deep-copy slice
+slice *copyslice(slice *slc)  {
+  slice *newslc = (slice *)malloc(sizeof(slice));
+  newslc->start = slc->start;
+  newslc->stop = slc->stop;
+  newslc->step = slc->step;
+  newslc->ns = slc->ns;
+  newslc->S = (unsigned *)malloc(newslc->ns*sizeof(unsigned));
+  for(int i=0;i<slc->ns;i++)  
+    newslc->S[i] = slc->S[i];
+  return newslc;
+}
+
+// Algorithm 1: 
+// repeat
+//   take longest slice
+//   modify Q
+//   compute allslices
+// 
+// Note: must pass NULL for rptsc and slcs
+int algorithm1(unsigned *X, int np, unsigned **rpoints, int *nrpt, slice ***slices, int *nslc)  {
+
+  slice **C = NULL;
+  unsigned nc = 0;
+
+  // put slices in a slice list because we don't know
+  // how many we'll end up with.
+  slicenode *head = NULL;
+  unsigned nn = 0;
+
+  sequence *Q = initseq(X, np);
+  while (1)  {
+
+    slice *slc = NULL;
+    int maxidx = -1;
+
+    if (allslices(Q, &C, &nc, 0) != 0)  {
+      break;
+    }
+
+    if ((maxidx = maxslice(C, nc)) == -1)  {
+      break;
+    }
+
+    if (removeslice(Q, C[maxidx]) != 0)  {
+      break;
+    }
+
+    // put slice in list
+    insert_slice_list(copyslice(C[maxidx]), &head);
+    nn++;
+
+    // deallocate 
+    dealloc_slice_array(C, nc);
+
+  }
+
+  // pack slices into an array
+  slice **SS = (slice **)malloc(nn*sizeof(slice *));
+  slicenode *s = head;
+  for(int i=0;i<nn;i++)  {
+    SS[i] = s->slice;
+    s = s->nxt;
+  }
+
+  // deallocate the list
+  delete_slice_list(head); 
+
+  // delete everything in Q->D except Q->X, which is returned
+  for(int i=0;i<Q->nd;i++)  {
+    free(Q->D[i]);
+  }
+  free(Q->D);
+
+  *rpoints = Q->X;     // points remaining
+  *nrpt = Q->np;
+
+  *slices = SS;     // slices found
+  *nslc = nn;
+
+  free(Q);
+  return 0;
+}
+
+
 
