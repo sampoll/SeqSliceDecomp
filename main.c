@@ -26,7 +26,8 @@ int main(int argc, char **argv)  {
 
   // slice decomposition
   algorithm1(X, np, &rpoints, &nrpoints, &slices, &nslices);
- 
+
+  /*
   // Note: indices in slices[] are nonsensical because they
   // refer to different intermediate sequences. 
   printf("Slices {");
@@ -38,13 +39,43 @@ int main(int argc, char **argv)  {
     printf("%u ", rpoints[i]);
   }
   printf("\n");
+  */
 
-  printf("\nChecking solution ... ");
   check(Y, slices, nslices, rpoints, nrpoints, np);
-  unsigned ntotal = nslices + nrpoints / 2;
+
+  int ntotal = nslices + nrpoints / 2;
   if (nrpoints % 2)
-    ntotal += 1;
-  printf("Sequence size = %u\nTotal slices = %u\n", np, ntotal);
+    ntotal++;
+
+  char **sres = (char **)malloc(sizeof(ntotal));
+  int j = 0;
+  for(int i=0;i<nslices;i++)  {
+    unsigned sz = snprintf(NULL, 0, "%u:%u:%u", slices[i]->start, slices[i]->stop, slices[i]->step);
+    sres[j] = (char *)malloc((sz+1)*sizeof(char));
+    sprintf(sres[j++], "%u:%u:%u", slices[i]->start, slices[i]->stop, slices[i]->step);
+  }
+  for(int i=0;i<nrpoints/2;i++)  {
+    unsigned start = rpoints[2*i];
+    unsigned stop = rpoints[2*i+ 1];
+    unsigned step = stop-start;
+
+    unsigned sz = snprintf(NULL, 0, "%u:%u:%u", start, stop, step);
+    sres[j] = (char *)malloc((sz+1)*sizeof(char));
+    sprintf(sres[j++], "%u:%u:%u", start, stop, step);
+  }
+  if (nrpoints % 2)  {
+    unsigned start = rpoints[nrpoints-1];
+    unsigned stop = start;
+    unsigned step = 1;
+
+    unsigned sz = snprintf(NULL, 0, "%u:%u:%u", start, stop, step);
+    sres[j] = (char *)malloc((sz+1)*sizeof(char));
+    sprintf(sres[j++], "%u:%u:%u", start, stop, step);
+  }
+  printf("Sequence size = %u\nTotal slices = %u\n", np, j);
+  for(int i=0;i<ntotal;i++)  {
+    printf("%s ", sres[i]);
+  }
 
   for(int i=0;i<nslices;i++)  {
     free(slices[i]->S);

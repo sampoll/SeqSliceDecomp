@@ -446,6 +446,14 @@ int removeslice(sequence *Q, slice *slc)  {
   //     one element in each row up to p-1
   // Set elements to be removed to 0.
 
+  if (Q->np == ns)  {  // done
+    free(Q->X); 
+    Q->X = NULL;
+    Q->nd = 0;
+    Q->np = 0;
+    return 0;
+  }
+
   // remove diagonally
   for(int i=0;i<ns;i++)  {
     int s = S[i];
@@ -573,7 +581,6 @@ int algorithm1(unsigned *X, int np, unsigned **rpoints, int *nrpt, slice ***slic
   sequence *Q = initseq(X, np);
   while (1)  {
 
-    slice *slc = NULL;
     int maxidx = -1;
 
     if (allslices(Q, &C, &nc, 0) != 0)  {
